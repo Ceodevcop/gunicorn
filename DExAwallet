@@ -1,0 +1,180 @@
+from flask import Flask, render_template_string, request, jsonify
+import requests
+import hashlib
+import time
+
+app = Flask(__name__)
+
+# Replace these with your Bitget API credentials
+API_KEY = 'bg_ffcbb26a743c6f3617a03e4edb87aa3f'
+API_SECRET = 'e397e3420dbb6a1b48dfef734e6ef8d6aaf29ee44a044d51dd1742a8143c0693'
+API_PASSPHRASE = 'your_api_passphrase'
+
+# Function to create API signature
+def create_signature(endpoint, params):
+    params['api_key'] = API_KEY
+    params['req_time'] = str(int(time.time() * 1000))
+    params['sign'] = hashlib.md5((str(params['req_time']) + endpoint + API_SECRET).encode()).hexdigest()
+    return params
+
+# Function to fetch market data
+def get_market_data(symbol):
+    url = 'https://api.bitget.com/api/spot/v1/market/tickers'
+    params = {'symbol': symbol}
+    params = create_signature('/api/spot/v1/market/tickers', params)
+    response = requests.get(url, params=params)
+    return response.json()
+
+# Function to place an order
+def place_order(symbol, side, price, quantity):
+    url = 'https://api.bitget.com/api/spot/v1/order'
+    params = {
+        'symbol': symbol,
+        'price': price,
+        'quantity': quantity,
+        'side': side,
+        'order_type': 'market'
+    }
+    params = create_signature('/api/spot/v1/order', params)
+    response = requests.post(url, params=params)
+    return response.json()
+
+# HTML template (inline for simplicity)
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitget Trading Bot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        button {
+            background-color: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #218838;
+        }
+        label {
+            display: block;
+            margin-top: 10px;
+        }
+        input {
+            padding: 8px;
+            width: 100%;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        #market-info, #order-response {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Bitget Trading Bot</h1>
+
+        <div>
+            <h2>Market Data</h2>
+            <button onclick="getMarketData()">Get BTC/USDT Price</button>
+            <div id="market-info"></div>
+        </div>
+
+        <div>
+            <h2>Place an Order</h2>
+            <form id="order-form" onsubmit="placeOrder(event)">
+                <label for="symbol">Symbol:</label>
+                <input type="text" id="symbol" name="symbol" value="BTCUSDT">
+                
+                <label for="side">Side (buy/sell):</label>
+                <input type="text" id="side" name="side" value="buy">
+                
+                <label for="price">Price:</label>
+                <input type="number" id="price" name="price" value="50000">
+                
+                <label for="quantity">Quantity:</label>
+                <input type="number" id="quantity" name="quantity" value="0.01">
+                
+                <button type="submit">Place Order</button>
+            </form>
+            <div id="order-response"></div>
+        </div>
+    </div>
+
+    <script>
+        function getMarketData() {
+            fetch('/get_market_data?symbol=BTCUSDT')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById("market-info").innerHTML =
+                        "<p>BTC/USDT Price: " + data.data[0].last + " USD</p>";
+                })
+                .catch(error => console.error('Error fetching market data:', error));
+        }
+
+        function placeOrder(event) {
+            event.preventDefault();
+            const form = document.getElementById("order-form");
+            const formData = new FormData(form);
+
+            fetch('/place_order', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("order-response").innerHTML =
+                    "<p>Order Response: " + JSON.stringify(data) + "</p>";
+            })
+            .catch(error => console.error('Error placing order:', error));
+        }
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/get_market_data', methods=['GET'])
+def get_market():
+    symbol = request.args.get('symbol', 'BTCUSDT')
+    market_data = get_market_data(symbol)
+    return jsonify(market_data)
+
+@app.route('/place_order', methods=['POST'])
+def place_trade():
+    symbol = request.form['symbol']
+    side = request.form['side']
+    price = request.form['price']
+    quantity = request.form['quantity']
+    order_response = place_order(symbol, side, price, quantity)
+    return jsonify(order_response)
+
+if __name__ == '__main__':
+    app.run(debug=True)
